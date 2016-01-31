@@ -94,7 +94,7 @@ func main() {
 
 				time.Sleep(1 * time.Second)
 				mu.Lock()
-				client, err = rpc.DialHTTP("tcp", "localhost:"+paulingPort)
+				client, err = rpc.DialHTTP("tcp", paulingAddr)
 				mu.Unlock()
 				if err == nil {
 					log.Println("Connected to Pauling.")
