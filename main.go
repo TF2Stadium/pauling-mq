@@ -12,50 +12,50 @@ import (
 )
 
 var (
-	paulingPort     = os.Getenv("PAULING_RPC_PORT")
-	paulingLogsPort = os.Getenv("PAULING_LOGS_PORT")
-	logsPort        = os.Getenv("LOGS_PORT")
+	paulingAddr     = os.Getenv("PAULING_RPC_ADDR")
+	paulingLogsAddr = os.Getenv("PAULING_LOGS_ADDR")
+	logsAddr        = os.Getenv("LOGS_ADDR")
 	client          *rpc.Client
 	mu              = new(sync.RWMutex)
 	messages        = make(chan []byte)
 )
 
 func init() {
-	if paulingPort == "" {
-		log.Fatal("PAULING_RPC_PORT not specified")
+	if paulingAddr == "" {
+		log.Fatal("PAULING_RPC_ADDR not specified")
 	}
-	if paulingLogsPort == "" {
-		log.Fatal("PAULING_LOGS_PORT not specified")
+	if paulingLogsAddr == "" {
+		log.Fatal("PAULING_LOGS_ADDR not specified")
 	}
-	if logsPort == "" {
-		logsPort = "8002"
+	if logsAddr == "" {
+		logsAddr = "8002"
 	}
 }
 
 func main() {
 	var err error
 
-	client, err = rpc.DialHTTP("tcp", "localhost:"+paulingPort)
+	client, err = rpc.DialHTTP("tcp", paulingAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Connected to Pauling on localhost:" + paulingPort)
+	log.Println("Connected to Pauling on" + paulingAddr)
 
-	paulingAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:"+paulingLogsPort)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	logsAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:"+logsPort)
-	if err != nil {
-		log.Fatal(err)
-	}
-	logs, err := net.ListenUDP("udp", logsAddr)
+	paulingUDPAddr, err := net.ResolveUDPAddr("udp", paulingAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	conn, err := net.DialUDP("udp", nil, paulingAddr)
+	logsUDPAddr, err := net.ResolveUDPAddr("udp", logsAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	logs, err := net.ListenUDP("udp", logsUDPAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, paulingUDPAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
