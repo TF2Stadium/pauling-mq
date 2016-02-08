@@ -1,47 +1,39 @@
 package main
 
 import (
-	"io"
+	"fmt"
 	"log"
 	"net"
-	"net/rpc"
+	"net/http"
 	"os"
-	"sync"
 	"sync/atomic"
-	"time"
 )
 
 var (
-	paulingAddr     = os.Getenv("PAULING_RPC_ADDR")
-	paulingLogsAddr = os.Getenv("PAULING_LOGS_ADDR")
-	logsAddr        = os.Getenv("LOGS_ADDR")
-	client          *rpc.Client
-	mu              = new(sync.RWMutex)
-	messages        = make(chan []byte)
+	paulingLogsAddr       = os.Getenv("MQ_PAULING_LOGS_ADDR")
+	logsAddr              = os.Getenv("MQ_LOGS_ADDR")
+	listenAddr            = os.Getenv("MQ_LISTEN_ADDR")
+	queue           int32 = 1
 )
 
 func init() {
-	if paulingAddr == "" {
-		log.Fatal("PAULING_RPC_ADDR not specified")
-	}
 	if paulingLogsAddr == "" {
-		log.Fatal("PAULING_LOGS_ADDR not specified")
+		log.Fatal("MQ_PAULING_LOGS_ADDR not specified")
 	}
 	if logsAddr == "" {
-		logsAddr = "8002"
+		logsAddr = ":8002"
 	}
 }
 
 func main() {
 	var err error
+	http.HandleFunc("/start", startQueuing)
+	http.HandleFunc("/stop", stopQueuing)
+	go func() {
+		log.Fatal(http.ListenAndServe(listenAddr, http.DefaultServeMux))
+	}()
 
-	client, err = rpc.DialHTTP("tcp", paulingAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Connected to Pauling on" + paulingAddr)
-
-	paulingUDPAddr, err := net.ResolveUDPAddr("udp", paulingAddr)
+	paulingUDPAddr, err := net.ResolveUDPAddr("udp", paulingLogsAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -61,53 +53,35 @@ func main() {
 	}
 
 	log.Println("Listening for logs on", logsAddr)
-	log.Println("Redirecting logs to", paulingAddr)
+	log.Println("Redirecting logs to", paulingLogsAddr)
 
-	var connected int32 = 1
 	var messages [][]byte
 
-	go func() {
-		for {
-			buff := make([]byte, 65000)
-			logs.Read(buff)
-			messages = append(messages, buff)
-
-			for i, msg := range messages {
-				if atomic.LoadInt32(&connected) == 1 {
-					conn.Write(msg)
-					messages = append(messages[:i], messages[i+1:]...)
-				} else {
-					break
-				}
-			}
-		}
-	}()
-
 	for {
-		err := client.Call("Pauling.Ping", struct{}{}, &struct{}{})
-		if err != nil {
-			log.Println("Disonnected from Pauling, queuing messages.")
-			for {
-				if !isNetworkError(err) {
-					log.Fatal(err)
-				}
+		buff := make([]byte, 65000)
+		logs.Read(buff)
+		messages = append(messages, buff)
 
-				time.Sleep(1 * time.Second)
-				mu.Lock()
-				client, err = rpc.DialHTTP("tcp", paulingAddr)
-				mu.Unlock()
-				if err == nil {
-					log.Println("Connected to Pauling.")
-					atomic.StoreInt32(&connected, 1)
-					break
-				}
+		for i, msg := range messages {
+			if atomic.LoadInt32(&queue) == 1 {
+				conn.Write(msg)
+				messages = append(messages[:i], messages[i+1:]...)
+			} else {
+				break
 			}
 		}
 	}
+
 }
 
-func isNetworkError(err error) bool {
-	_, ok := err.(*net.OpError)
-	return ok || err == io.ErrUnexpectedEOF || err == rpc.ErrShutdown
+func startQueuing(w http.ResponseWriter, r *http.Request) {
+	atomic.StoreInt32(&queue, 0)
+	log.Println("Queuing messages.")
+	fmt.Fprint(w, "Queuing messages.")
+}
 
+func stopQueuing(w http.ResponseWriter, r *http.Request) {
+	atomic.StoreInt32(&queue, 1)
+	log.Println("Stopepd queuing messages.")
+	fmt.Fprint(w, "Stopped queuing messages.")
 }
