@@ -5,40 +5,39 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"sync/atomic"
+
+	"github.com/kelseyhightower/envconfig"
 )
 
-var (
-	paulingLogsAddr       = os.Getenv("MQ_PAULING_LOGS_ADDR")
-	logsAddr              = os.Getenv("MQ_LOGS_ADDR")
-	listenAddr            = os.Getenv("MQ_LISTEN_ADDR")
-	queue           int32 = 1
-)
-
-func init() {
-	if paulingLogsAddr == "" {
-		log.Fatal("MQ_PAULING_LOGS_ADDR not specified")
-	}
-	if logsAddr == "" {
-		logsAddr = ":8002"
-	}
+type c struct {
+	PaulingRedirectAddr string `envconfig:"PAULING_REDIRECT_ADDR" required:"true"`
+	LogsAddr            string `envconfig:"LOGS_ADDR" default:"0.0.0.0:8002"`
+	ListenAddr          string `envconfig:"LISTEN_ADDR" required:"true"`
 }
 
-func main() {
-	var err error
-	http.HandleFunc("/start", startQueuing)
-	http.HandleFunc("/stop", stopQueuing)
-	go func() {
-		log.Fatal(http.ListenAndServe(listenAddr, http.DefaultServeMux))
-	}()
+var queue int32
 
-	paulingUDPAddr, err := net.ResolveUDPAddr("udp", paulingLogsAddr)
+func main() {
+	var config c
+
+	err := envconfig.Process("MQ", &config)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	logsUDPAddr, err := net.ResolveUDPAddr("udp", logsAddr)
+	http.HandleFunc("/start", startQueuing)
+	http.HandleFunc("/stop", stopQueuing)
+	go func() {
+		log.Fatal(http.ListenAndServe(config.ListenAddr, http.DefaultServeMux))
+	}()
+
+	paulingUDPAddr, err := net.ResolveUDPAddr("udp", config.PaulingRedirectAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	logsUDPAddr, err := net.ResolveUDPAddr("udp", config.LogsAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -52,8 +51,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Println("Listening for logs on", logsAddr)
-	log.Println("Redirecting logs to", paulingLogsAddr)
+	log.Println("Listening for logs on", config.LogsAddr)
+	log.Println("Redirecting logs to", config.PaulingRedirectAddr)
 
 	var messages [][]byte
 
