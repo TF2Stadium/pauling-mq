@@ -1,5 +1,5 @@
-FROM scratch
+FROM alpine
 
 ADD pauling-mq /pauling-mq
 
-CMD ["/pauling-mq"]
+ENTRYPOINT /pauling-mq
